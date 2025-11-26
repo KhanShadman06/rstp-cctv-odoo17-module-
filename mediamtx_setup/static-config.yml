@@ -1,0 +1,61 @@
+logLevel: info
+logDestinations: [stdout]
+api: true
+apiAddress: :9997
+
+rtspAddress: :8554
+rtspsAddress: :8322
+rtmpAddress: :1935
+rtmpEncryption: "no"
+
+hlsAddress: :8888
+hlsAlwaysRemux: false
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+webrtcAddress: :8889
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: true
+webrtcIPsFromInterfacesList: []
+webrtcICEServers2: []
+
+paths:
+  # Your Front camera (2nd floor)
+  front-raw:
+    source: rtsp://admin:123456789m@192.168.50.210:554/cam/realmonitor?channel=3&subtype=0
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+
+  front:
+    runOnDemand: >
+      ffmpeg -rtsp_transport tcp
+      -i rtsp://localhost:8554/front-raw
+      -map 0:v:0
+      -c:v libx264
+      -preset ultrafast
+      -tune zerolatency
+      -profile:v baseline
+      -level 3.1
+      -pix_fmt yuv420p
+      -b:v 1000k
+      -maxrate 1500k
+      -bufsize 2000k
+      -g 30
+      -keyint_min 30
+      -sc_threshold 0
+      -an
+      -max_muxing_queue_size 1024
+      -f rtsp
+      rtsp://localhost:8554/\$MTX_PATH
+    runOnDemandRestart: yes
+    runOnDemandStartTimeout: 15s
+    runOnDemandCloseAfter: 10s
+
+  all_others:
+    sourceOnDemand: false

@@ -1,0 +1,58 @@
+services:
+  # MediaMTX Sync Service - Generates config from Odoo cameras
+  mediamtx-sync:
+    build: ../mediamtx-sync
+    container_name: mediamtx-sync
+    restart: unless-stopped
+    networks:
+      - docker_default
+    volumes:
+      - shared-config:/mediamtx
+    environment:
+      - ODOO_URL=http://docker-odoo-1:8069
+      - ODOO_DB=odoo2
+      - MEDIAMTX_CONFIG_PATH=/mediamtx/mediamtx.yml
+      - POLL_INTERVAL=30
+      - MEDIAMTX_API_URL=http://mediamtx:9997
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # MediaMTX Server - Streams cameras via WebRTC
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx
+    restart: unless-stopped
+    depends_on:
+      - mediamtx-sync
+    networks:
+      - docker_default
+    ports:
+      - "8554:8554"    # RTSP
+      - "8554:8554/udp"
+      - "1935:1935"    # RTMP
+      - "8888:8888"    # HLS
+      - "8889:8889"    # WebRTC HTTP
+      - "8189:8189/udp" # WebRTC ICE UDP
+      - "8189:8189/tcp" # WebRTC ICE TCP
+      - "9997:9997"    # API
+    volumes:
+      - shared-config:/config:ro
+    environment:
+      - MTX_LOGLEVEL=info
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: sh -c "while [ ! -f /config/mediamtx.yml ]; do echo 'Waiting for config file...'; sleep 3; done && echo 'Config found, starting MediaMTX...' && exec /mediamtx /config/mediamtx.yml"
+
+networks:
+  docker_default:
+    external: true
+
+volumes:
+  shared-config:
+    driver: local

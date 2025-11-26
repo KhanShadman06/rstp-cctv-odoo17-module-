@@ -1,0 +1,146 @@
+###############################################
+# MediaMTX Configuration for H.265 to H.264 Transcoding
+# Version: Compatible with mediamtx v1.15+
+###############################################
+
+# General server settings
+logLevel: info
+logDestinations: [stdout]
+
+# API settings for monitoring
+api: yes
+apiAddress: :9997
+
+# RTSP server settings
+rtspAddress: :8554
+rtspsAddress: :8322
+
+# RTMP server settings
+rtmpAddress: :1935
+rtmpEncryption: "no"
+
+# HLS server settings
+hlsAddress: :8888
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+# WebRTC server settings
+webrtcAddress: :8889
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: yes
+webrtcIPsFromInterfacesList: []
+webrtcICEServers2: []
+
+# Path settings
+paths:
+  # Original H.265 camera stream - camera 1
+  # Replace with your actual DVR RTSP URL
+  camera-1-raw:
+    # IMPORTANT: Update this URL with your actual camera credentials and IP
+    source: rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101
+    sourceProtocol: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+
+  # Transcoded H.264 stream for WebRTC - camera 1
+  camera-1:
+    runOnDemand: >
+      ffmpeg -rtsp_transport tcp
+      -i rtsp://localhost:8554/camera-1-raw
+      -map 0:v:0
+      -c:v libx264
+      -preset ultrafast
+      -tune zerolatency
+      -profile:v baseline
+      -level 3.1
+      -pix_fmt yuv420p
+      -b:v 1000k
+      -maxrate 1500k
+      -bufsize 2000k
+      -g 30
+      -keyint_min 30
+      -sc_threshold 0
+      -an
+      -max_muxing_queue_size 1024
+      -f rtsp
+      rtsp://localhost:8554/$MTX_PATH
+    runOnDemandRestart: yes
+    runOnDemandStartTimeout: 15s
+    runOnDemandCloseAfter: 10s
+
+  # Original H.265 camera stream - camera 2
+  camera-2-raw:
+    # IMPORTANT: Update this URL with your actual camera credentials and IP
+    source: rtsp://admin:password@192.168.1.101:554/Streaming/Channels/101
+    sourceProtocol: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+
+  # Transcoded H.264 stream for WebRTC - camera 2
+  camera-2:
+    runOnDemand: >
+      ffmpeg -rtsp_transport tcp
+      -i rtsp://localhost:8554/camera-2-raw
+      -map 0:v:0
+      -c:v libx264
+      -preset ultrafast
+      -tune zerolatency
+      -profile:v baseline
+      -level 3.1
+      -pix_fmt yuv420p
+      -b:v 1000k
+      -maxrate 1500k
+      -bufsize 2000k
+      -g 30
+      -keyint_min 30
+      -sc_threshold 0
+      -an
+      -max_muxing_queue_size 1024
+      -f rtsp
+      rtsp://localhost:8554/$MTX_PATH
+    runOnDemandRestart: yes
+    runOnDemandStartTimeout: 15s
+    runOnDemandCloseAfter: 10s
+
+  # Catch-all for any other paths
+  all_others:
+    sourceOnDemand: no
+
+###############################################
+# FFmpeg Parameters Explanation:
+###############################################
+# -rtsp_transport tcp: Use TCP for more reliable connection
+# -map 0:v:0: Select only video stream (no audio)
+# -c:v libx264: Use H.264 codec
+# -preset ultrafast: Minimize encoding latency
+# -tune zerolatency: Optimize for real-time streaming
+# -profile:v baseline: Maximum browser compatibility
+# -level 3.1: WebRTC compatible level
+# -pix_fmt yuv420p: Required for browser playback
+# -b:v 1000k: Target bitrate 1 Mbps
+# -maxrate/bufsize: Rate control for stable streaming
+# -g 30 -keyint_min 30: Keyframe every 30 frames (~1 sec at 30fps)
+# -sc_threshold 0: Disable scene change detection for consistent keyframes
+# -an: Remove audio (your DVR has MPEG-4 audio which isn't WebRTC compatible)
+# -max_muxing_queue_size 1024: Prevent buffer overflow
+###############################################
+
+###############################################
+# Usage Instructions:
+###############################################
+# 1. Update the RTSP URLs above with your actual camera IP addresses and credentials
+# 2. For WebRTC playback, use path "camera-1" or "camera-2" (NOT camera-1-raw)
+# 3. WebRTC endpoint: http://localhost:8889/<camera-name>/whep
+# 4. Test with: ffplay rtsp://localhost:8554/camera-1
+#
+# Your Odoo module should connect to:
+#   ws://mediamtx:8889/camera-1/whep (for camera 1)
+#   ws://mediamtx:8889/camera-2/whep (for camera 2)
+###############################################

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaMTX WebRTC Test Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            text-align: center;
+            color: #4CAF50;
+        }
+
+        .cameras {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .camera {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .camera h2 {
+            margin-bottom: 15px;
+            color: #4CAF50;
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            margin-bottom: 15px;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-play {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-play:hover {
+            background: #45a049;
+        }
+
+        .btn-play:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: #da190b;
+        }
+
+        .btn-stop:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            min-height: 60px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .status.info {
+            background: #2196F3;
+        }
+
+        .status.success {
+            background: #4CAF50;
+        }
+
+        .status.error {
+            background: #f44336;
+        }
+
+        .status.waiting {
+            background: #FF9800;
+        }
+
+        .info-box {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .info-box h3 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            line-height: 1.8;
+        }
+
+        .info-box code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MediaMTX WebRTC Test Player</h1>
+
+        <div class="cameras">
+            <!-- Camera 1 -->
+            <div class="camera">
+                <h2>Camera 1</h2>
+                <div class="video-container">
+                    <video id="video1" autoplay playsinline muted></video>
+                </div>
+                <div class="controls">
+                    <button class="btn-play" onclick="startStream('camera-1', 1)">▶️ Play</button>
+                    <button class="btn-stop" onclick="stopStream(1)" disabled>⏹️ Stop</button>
+                </div>
+                <div id="status1" class="status info">Ready to play. Click Play to start.</div>
+            </div>
+
+            <!-- Camera 2 -->
+            <div class="camera">
+                <h2>Camera 2</h2>
+                <div class="video-container">
+                    <video id="video2" autoplay playsinline muted></video>
+                </div>
+                <div class="controls">
+                    <button class="btn-play" onclick="startStream('camera-2', 2)">▶️ Play</button>
+                    <button class="btn-stop" onclick="stopStream(2)" disabled>⏹️ Stop</button>
+                </div>
+                <div id="status2" class="status info">Ready to play. Click Play to start.</div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>ℹ️ Instructions</h3>
+            <ul>
+                <li>Make sure MediaMTX is running: <code>docker ps | grep mediamtx</code></li>
+                <li>Verify camera URLs are configured in <code>mediamtx.yml</code></li>
+                <li>Click "Play" to start the WebRTC stream (first connection may take 5-15 seconds)</li>
+                <li>Open browser console (F12) to see detailed logs</li>
+                <li>If you see "codecs not supported", the transcoding didn't work - check MediaMTX logs</li>
+            </ul>
+
+            <h3 style="margin-top: 20px;">🔧 Troubleshooting</h3>
+            <ul>
+                <li>Check MediaMTX logs: <code>docker logs -f mediamtx</code></li>
+                <li>Verify FFmpeg is transcoding: Look for "Video: h264" not "Video: hevc"</li>
+                <li>Test RTSP directly: <code>ffprobe rtsp://localhost:8554/camera-1</code></li>
+                <li>Check browser console for WebRTC errors</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const peerConnections = {};
+        const whipWhepEndpoint = 'http://localhost:8889';
+
+        function updateStatus(cameraNum, message, type = 'info') {
+            const statusDiv = document.getElementById(`status${cameraNum}`);
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            console.log(`[Camera ${cameraNum}] ${message}`);
+        }
+
+        function updateButtons(cameraNum, playing) {
+            const playBtn = document.querySelector(`.camera:nth-child(${cameraNum}) .btn-play`);
+            const stopBtn = document.querySelector(`.camera:nth-child(${cameraNum}) .btn-stop`);
+            playBtn.disabled = playing;
+            stopBtn.disabled = !playing;
+        }
+
+        async function startStream(path, cameraNum) {
+            try {
+                updateStatus(cameraNum, 'Initializing WebRTC connection...', 'waiting');
+                updateButtons(cameraNum, true);
+
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+                    bundlePolicy: 'max-bundle'
+                });
+
+                peerConnections[cameraNum] = pc;
+
+                // Handle incoming tracks
+                pc.ontrack = (event) => {
+                    console.log(`[Camera ${cameraNum}] Received track:`, event.track.kind);
+                    const video = document.getElementById(`video${cameraNum}`);
+                    video.srcObject = event.streams[0];
+                    updateStatus(cameraNum, `✓ Playing (${event.track.kind})`, 'success');
+                };
+
+                // Log ICE connection state
+                pc.oniceconnectionstatechange = () => {
+                    console.log(`[Camera ${cameraNum}] ICE state: ${pc.iceConnectionState}`);
+                    if (pc.iceConnectionState === 'connected') {
+                        updateStatus(cameraNum, '✓ WebRTC connected successfully!', 'success');
+                    } else if (pc.iceConnectionState === 'failed') {
+                        updateStatus(cameraNum, '❌ Connection failed. Check MediaMTX logs.', 'error');
+                        updateButtons(cameraNum, false);
+                    }
+                };
+
+                // Log connection state
+                pc.onconnectionstatechange = () => {
+                    console.log(`[Camera ${cameraNum}] Connection state: ${pc.connectionState}`);
+                };
+
+                // Add transceivers for receiving video only (no audio)
+                pc.addTransceiver('video', { direction: 'recvonly' });
+
+                // Create offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Wait for ICE gathering to complete
+                await new Promise((resolve) => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        pc.addEventListener('icegatheringstatechange', () => {
+                            if (pc.iceGatheringState === 'complete') {
+                                resolve();
+                            }
+                        });
+                    }
+                });
+
+                updateStatus(cameraNum, 'Connecting to MediaMTX (this may take 5-15 seconds)...', 'waiting');
+
+                // Send offer to WHEP endpoint
+                const response = await fetch(`${whipWhepEndpoint}/${path}/whep`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sdp',
+                    },
+                    body: pc.localDescription.sdp,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`WHEP failed: ${response.status} ${response.statusText}`);
+                }
+
+                const answerSdp = await response.text();
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp,
+                }));
+
+                updateStatus(cameraNum, 'Waiting for stream... (FFmpeg may be starting)', 'waiting');
+                console.log(`[Camera ${cameraNum}] WebRTC negotiation complete`);
+
+            } catch (error) {
+                console.error(`[Camera ${cameraNum}] Error:`, error);
+                updateStatus(cameraNum, `❌ Error: ${error.message}`, 'error');
+                updateButtons(cameraNum, false);
+
+                // Clean up
+                if (peerConnections[cameraNum]) {
+                    peerConnections[cameraNum].close();
+                    delete peerConnections[cameraNum];
+                }
+            }
+        }
+
+        function stopStream(cameraNum) {
+            if (peerConnections[cameraNum]) {
+                peerConnections[cameraNum].close();
+                delete peerConnections[cameraNum];
+            }
+
+            const video = document.getElementById(`video${cameraNum}`);
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+
+            updateStatus(cameraNum, 'Stopped', 'info');
+            updateButtons(cameraNum, false);
+            console.log(`[Camera ${cameraNum}] Stream stopped`);
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            Object.keys(peerConnections).forEach(cameraNum => {
+                stopStream(parseInt(cameraNum));
+            });
+        });
+    </script>
+</body>
+</html>
