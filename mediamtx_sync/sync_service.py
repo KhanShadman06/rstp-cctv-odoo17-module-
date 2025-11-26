@@ -17,6 +17,7 @@ import logging
 import os
 import signal
 import sys
+import subprocess
 from datetime import datetime
 
 # Configuration
@@ -225,6 +226,33 @@ def calculate_config_hash(config):
     return hashlib.md5(config_str.encode()).hexdigest()
 
 
+def reload_mediamtx():
+    """Trigger MediaMTX container restart to reload configuration"""
+    try:
+        # Try to restart MediaMTX container via docker socket
+        result = subprocess.run(
+            ['docker', 'restart', 'mediamtx'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0:
+            logger.info("✓ MediaMTX container restarted successfully")
+            return True
+        else:
+            logger.warning(f"Failed to restart MediaMTX: {result.stderr}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout while restarting MediaMTX")
+        return False
+    except Exception as e:
+        logger.warning(f"Could not restart MediaMTX (this is OK if running without Docker access): {e}")
+        logger.info("💡 Please restart MediaMTX manually or mount Docker socket")
+        return False
+
+
 def sync_once(uid):
     """Perform one sync operation"""
     try:
@@ -249,6 +277,8 @@ def sync_once(uid):
             logger.info(f"Configuration changed (cameras: {len(cameras)})")
             if write_config(new_config, MEDIAMTX_CONFIG_PATH):
                 logger.info("✓ MediaMTX config updated successfully")
+                # Restart MediaMTX to reload config
+                reload_mediamtx()
                 return True
         else:
             logger.debug("Configuration unchanged, skipping write")
