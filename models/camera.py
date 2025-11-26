@@ -198,24 +198,19 @@ class CCTVCamera(models.Model):
                 'tag': 'display_notification',
                 'params': {
                     'title': 'No Stream Available',
-                    'message': 'Please save the camera first and wait for sync (30 seconds)',
+                    'message': 'Please save the camera first',
                     'type': 'warning',
                     'sticky': False,
                 }
             }
 
-        # Open viewer with camera path pre-filled
-        viewer_url = f"file:///home/shadman/docker/mediamtx/simple-viewer.html?camera={self.mediamtx_path}"
+        # Open viewer served through Odoo static files
+        viewer_url = f"/cctv_monitoring/static/viewer/index.html?camera={self.mediamtx_path}"
 
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Open Camera Viewer',
-                'message': f'Copy this URL and open in browser:\nfile:///home/shadman/docker/mediamtx/simple-viewer.html\n\nCamera path: {self.mediamtx_path}',
-                'type': 'info',
-                'sticky': True,
-            }
+            'type': 'ir.actions.act_url',
+            'url': viewer_url,
+            'target': 'new',
         }
 
     @api.model

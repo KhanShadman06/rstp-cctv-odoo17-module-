@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #4CAF50;
+        }
+        .video-container {
+            position: relative;
+            background: #1a1a1a;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #4CAF50;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #fff;
+            font-size: 14px;
+        }
+        button {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-play {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-play:hover {
+            background: #45a049;
+        }
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+        .btn-stop:hover {
+            background: #da190b;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status.info { background: #2196F3; }
+        .status.success { background: #4CAF50; }
+        .status.error { background: #f44336; }
+        .status.waiting { background: #FF9800; }
+        .info-box {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .info-box h3 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+        .info-box p {
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        .info-box code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📹 MediaMTX Camera Viewer</h1>
+
+        <div class="controls">
+            <input type="text" id="cameraPath" placeholder="Enter camera path (e.g., front)" value="front">
+            <button class="btn-play" onclick="startStream()">▶️ Play</button>
+            <button class="btn-stop" onclick="stopStream()">⏹️ Stop</button>
+        </div>
+
+        <div id="status" class="status info">Enter camera path and click Play to start viewing</div>
+
+        <div class="video-container">
+            <video id="video" autoplay playsinline muted></video>
+        </div>
+
+        <div class="info-box">
+            <h3>ℹ️ How to Use:</h3>
+            <p>1. Enter your camera path from Odoo (e.g., <code>front</code>, <code>camera-1</code>)</p>
+            <p>2. Click <strong>Play</strong> to start the stream</p>
+            <p>3. First connection may take 5-15 seconds while FFmpeg starts transcoding</p>
+            <p><strong>Note:</strong> Make sure your camera is added in Odoo and synced to MediaMTX (wait 30 seconds after saving)</p>
+        </div>
+    </div>
+
+    <script>
+        let pc = null;
+        const whepEndpoint = 'http://localhost:8889';
+
+        // Get camera path from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const cameraParam = urlParams.get('camera');
+        if (cameraParam) {
+            document.getElementById('cameraPath').value = cameraParam;
+            // Auto-start stream after a short delay
+            setTimeout(() => startStream(), 500);
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            console.log(message);
+        }
+
+        async function startStream() {
+            const cameraPath = document.getElementById('cameraPath').value.trim();
+
+            if (!cameraPath) {
+                updateStatus('❌ Please enter a camera path', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('🔄 Initializing WebRTC connection...', 'waiting');
+
+                // Create peer connection
+                pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+                    bundlePolicy: 'max-bundle'
+                });
+
+                // Handle incoming tracks
+                pc.ontrack = (event) => {
+                    console.log('Received track:', event.track.kind);
+                    const video = document.getElementById('video');
+                    video.srcObject = event.streams[0];
+                    updateStatus(`✅ Playing: ${cameraPath}`, 'success');
+                };
+
+                // Log ICE connection state
+                pc.oniceconnectionstatechange = () => {
+                    console.log('ICE state:', pc.iceConnectionState);
+                    if (pc.iceConnectionState === 'connected') {
+                        updateStatus(`✅ Connected to ${cameraPath}`, 'success');
+                    } else if (pc.iceConnectionState === 'failed') {
+                        updateStatus('❌ Connection failed. Check MediaMTX logs and camera sync.', 'error');
+                    }
+                };
+
+                // Add transceiver for receiving video only
+                pc.addTransceiver('video', { direction: 'recvonly' });
+
+                // Create offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Wait for ICE gathering
+                await new Promise((resolve) => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        pc.addEventListener('icegatheringstatechange', () => {
+                            if (pc.iceGatheringState === 'complete') {
+                                resolve();
+                            }
+                        });
+                    }
+                });
+
+                updateStatus('🔄 Connecting to MediaMTX (may take 5-15 seconds)...', 'waiting');
+
+                // Send offer to WHEP endpoint
+                const url = `${whepEndpoint}/${cameraPath}/whep`;
+                console.log('Connecting to:', url);
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sdp',
+                    },
+                    body: pc.localDescription.sdp,
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`WHEP failed: ${response.status} - ${errorText}`);
+                }
+
+                const answerSdp = await response.text();
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp,
+                }));
+
+                updateStatus('⏳ Waiting for stream... (FFmpeg may be starting)', 'waiting');
+                console.log('WebRTC negotiation complete');
+
+            } catch (error) {
+                console.error('Error:', error);
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+
+                if (pc) {
+                    pc.close();
+                    pc = null;
+                }
+            }
+        }
+
+        function stopStream() {
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+
+            const video = document.getElementById('video');
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+
+            updateStatus('⏹️ Stopped', 'info');
+            console.log('Stream stopped');
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            stopStream();
+        });
+
+        // Allow Enter key to start stream
+        document.getElementById('cameraPath').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                startStream();
+            }
+        });
+    </script>
+</body>
+</html>
