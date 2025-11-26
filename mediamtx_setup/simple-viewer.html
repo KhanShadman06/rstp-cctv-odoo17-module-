@@ -141,6 +141,15 @@
         let pc = null;
         const whepEndpoint = 'http://localhost:8889';
 
+        // Get camera path from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const cameraParam = urlParams.get('camera');
+        if (cameraParam) {
+            document.getElementById('cameraPath').value = cameraParam;
+            // Auto-start stream after a short delay
+            setTimeout(() => startStream(), 500);
+        }
+
         function updateStatus(message, type = 'info') {
             const statusDiv = document.getElementById('status');
             statusDiv.className = `status ${type}`;
