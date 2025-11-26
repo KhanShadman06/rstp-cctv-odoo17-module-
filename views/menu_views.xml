@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Main Menu -->
+    <menuitem id="menu_cctv_root"
+              name="CCTV"
+              sequence="10"
+              web_icon="cctv_monitoring,static/description/icon.png"/>
+
+    <!-- Cameras Submenu -->
+    <menuitem id="menu_cctv_cameras"
+              name="Cameras"
+              parent="menu_cctv_root"
+              action="action_cctv_camera"
+              sequence="10"/>
+
+    <!-- Configuration Submenu -->
+    <menuitem id="menu_cctv_config"
+              name="Configuration"
+              parent="menu_cctv_root"
+              sequence="100"/>
+
+    <menuitem id="menu_cctv_cameras_config"
+              name="Cameras"
+              parent="menu_cctv_config"
+              action="action_cctv_camera"
+              sequence="10"/>
+</odoo>
