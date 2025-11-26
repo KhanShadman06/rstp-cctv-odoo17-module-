@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import http
-from odoo.http import request
+from odoo.http import request, Response
 import json
 import logging
 
@@ -9,12 +9,7 @@ _logger = logging.getLogger(__name__)
 
 class CameraAPI(http.Controller):
 
-    @http.route('/api/cctv/test', type='http', auth='none', methods=['GET'], csrf=False, save_session=False)
-    def test_route(self, **kwargs):
-        """Test route to verify routing works"""
-        return "CCTV API is working!"
-
-    @http.route('/api/cctv/cameras', type='http', auth='public', methods=['GET', 'POST'], csrf=False)
+    @http.route('/cctv/api/cameras', type='http', auth='none', methods=['GET'], csrf=False, cors='*')
     def get_cameras(self, **kwargs):
         """
         API endpoint to get all active cameras for MediaMTX sync service
@@ -23,33 +18,47 @@ class CameraAPI(http.Controller):
             JSON response with list of camera dictionaries
         """
         try:
+            # Use sudo() to bypass access rights for API call
             Camera = request.env['cctv.camera'].sudo()
-            cameras = Camera.get_cameras_for_mediamtx()
+            cameras = Camera.search([('active', '=', True)])
 
-            _logger.info(f"API: Returned {len(cameras)} cameras for MediaMTX sync")
+            camera_list = []
+            for camera in cameras:
+                camera_list.append({
+                    'id': camera.id,
+                    'name': camera.name,
+                    'mediamtx_path': camera.mediamtx_path,
+                    'rtsp_url': camera.rtsp_url,
+                    'transcoding_enabled': camera.transcoding_enabled,
+                    'target_bitrate': camera.target_bitrate,
+                })
+
+            _logger.info(f"CCTV API: Returned {len(camera_list)} cameras")
 
             response_data = {
                 'success': True,
-                'cameras': cameras,
-                'count': len(cameras),
+                'cameras': camera_list,
+                'count': len(camera_list),
             }
 
-            return request.make_response(
+            return Response(
                 json.dumps(response_data),
-                headers=[('Content-Type', 'application/json')]
+                content_type='application/json',
+                status=200
             )
 
         except Exception as e:
-            _logger.error(f"Error in camera API: {str(e)}")
+            _logger.error(f"CCTV API Error: {str(e)}", exc_info=True)
             error_data = {
                 'success': False,
                 'error': str(e),
                 'cameras': [],
                 'count': 0,
             }
-            return request.make_response(
+            return Response(
                 json.dumps(error_data),
-                headers=[('Content-Type', 'application/json')]
+                content_type='application/json',
+                status=500
             )
 
     @http.route('/api/cctv/camera/<int:camera_id>', type='json', auth='public', methods=['GET'], csrf=False)

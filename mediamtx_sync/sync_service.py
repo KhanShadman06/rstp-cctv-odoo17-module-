@@ -4,12 +4,12 @@ MediaMTX Sync Service
 =====================
 
 This service automatically generates mediamtx.yml configuration
-from cameras defined in Odoo CCTV module.
+from cameras defined in Odoo CCTV module using XML-RPC.
 
-It polls the Odoo API and regenerates the config when cameras change.
+It polls the Odoo database and regenerates the config when cameras change.
 """
 
-import requests
+import xmlrpc.client
 import yaml
 import time
 import hashlib
@@ -21,7 +21,9 @@ from datetime import datetime
 
 # Configuration
 ODOO_URL = os.getenv('ODOO_URL', 'http://docker-odoo-1:8069')
-ODOO_DB = os.getenv('ODOO_DB')  # optional database name
+ODOO_DB = os.getenv('ODOO_DB', 'odoo2')
+ODOO_USER = os.getenv('ODOO_USER', 'admin')
+ODOO_PASSWORD = os.getenv('ODOO_PASSWORD', 'admin')
 MEDIAMTX_CONFIG_PATH = os.getenv('MEDIAMTX_CONFIG_PATH', '/mediamtx/mediamtx.yml')
 POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '30'))  # seconds
 MEDIAMTX_API_URL = os.getenv('MEDIAMTX_API_URL', 'http://localhost:9997')
@@ -44,45 +46,51 @@ def signal_handler(sig, frame):
     running = False
 
 
-def _build_odoo_url(path: str) -> str:
-    """Compose the full Odoo URL including optional db parameter."""
-    base = ODOO_URL.rstrip('/')
-    url = f"{base}{path}"
-    if ODOO_DB:
-        separator = '&' if '?' in url else '?'
-        url = f"{url}{separator}db={ODOO_DB}"
-    return url
-
-
-def get_cameras_from_odoo():
-    """Fetch active cameras from Odoo API"""
+def authenticate_odoo():
+    """Authenticate with Odoo and return UID"""
     try:
-        url = _build_odoo_url('/api/cctv/cameras')
-        logger.debug(f"Fetching cameras from {url}")
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
 
-        response = requests.post(
-            url,
-            json={},
-            headers={'Content-Type': 'application/json'},
-            timeout=10
+        if uid:
+            logger.info(f"Successfully authenticated with Odoo as user ID: {uid}")
+            return uid
+        else:
+            logger.error("Authentication failed - check credentials")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error authenticating with Odoo: {e}")
+        return None
+
+
+def get_cameras_from_odoo(uid):
+    """Fetch active cameras from Odoo using XML-RPC"""
+    try:
+        models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+
+        # Search for active cameras
+        camera_ids = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            'cctv.camera', 'search',
+            [[['active', '=', True]]]
         )
 
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                cameras = data.get('cameras', [])
-                logger.info(f"Retrieved {len(cameras)} cameras from Odoo")
-                return cameras
-            else:
-                logger.error(f"Odoo API error: {data.get('error')}")
-                return []
-        else:
-            logger.error(f"HTTP error {response.status_code}: {response.text}")
+        if not camera_ids:
+            logger.info("No active cameras found in Odoo")
             return []
 
-    except requests.exceptions.ConnectionError:
-        logger.warning("Cannot connect to Odoo (may not be ready yet)")
-        return []
+        # Read camera data
+        cameras = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            'cctv.camera', 'read',
+            [camera_ids],
+            {'fields': ['id', 'name', 'mediamtx_path', 'rtsp_url', 'transcoding_enabled', 'target_bitrate']}
+        )
+
+        logger.info(f"Retrieved {len(cameras)} cameras from Odoo")
+        return cameras
+
     except Exception as e:
         logger.error(f"Error fetching cameras from Odoo: {e}")
         return []
@@ -217,32 +225,11 @@ def calculate_config_hash(config):
     return hashlib.md5(config_str.encode()).hexdigest()
 
 
-def reload_mediamtx():
-    """Signal MediaMTX to reload configuration"""
-    try:
-        # MediaMTX reloads config automatically when the file changes
-        # But we can also call the API to force reload
-        url = f"{MEDIAMTX_API_URL}/v3/config/global/patch"
-        response = requests.patch(url, json={}, timeout=5)
-
-        if response.status_code in [200, 204]:
-            logger.info("MediaMTX configuration reloaded via API")
-            return True
-        else:
-            logger.warning(f"MediaMTX API returned {response.status_code}, relying on auto-reload")
-            return False
-
-    except Exception as e:
-        logger.debug(f"Could not reload via API (this is OK): {e}")
-        logger.info("MediaMTX will auto-reload when it detects config file change")
-        return False
-
-
-def sync_once():
+def sync_once(uid):
     """Perform one sync operation"""
     try:
         # Fetch cameras from Odoo
-        cameras = get_cameras_from_odoo()
+        cameras = get_cameras_from_odoo(uid)
 
         # Generate new config
         new_config = generate_mediamtx_config(cameras)
@@ -261,7 +248,7 @@ def sync_once():
         if new_hash != old_hash:
             logger.info(f"Configuration changed (cameras: {len(cameras)})")
             if write_config(new_config, MEDIAMTX_CONFIG_PATH):
-                reload_mediamtx()
+                logger.info("✓ MediaMTX config updated successfully")
                 return True
         else:
             logger.debug("Configuration unchanged, skipping write")
@@ -277,10 +264,11 @@ def main():
     global running
 
     logger.info("=" * 60)
-    logger.info("MediaMTX Sync Service Starting")
+    logger.info("MediaMTX Sync Service Starting (XML-RPC)")
     logger.info("=" * 60)
     logger.info(f"Odoo URL: {ODOO_URL}")
-    logger.info(f"Odoo DB: {ODOO_DB or '(default)'}")
+    logger.info(f"Odoo DB: {ODOO_DB}")
+    logger.info(f"Odoo User: {ODOO_USER}")
     logger.info(f"Config Path: {MEDIAMTX_CONFIG_PATH}")
     logger.info(f"Poll Interval: {POLL_INTERVAL}s")
     logger.info("=" * 60)
@@ -289,22 +277,27 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Initial sync with retry
-    logger.info("Performing initial sync...")
+    # Authenticate with Odoo
+    logger.info("Authenticating with Odoo...")
+    uid = None
     retry_count = 0
-    max_retries = 10
+    max_auth_retries = 10
 
-    while retry_count < max_retries and running:
-        if sync_once():
-            logger.info("Initial sync successful")
+    while retry_count < max_auth_retries and running:
+        uid = authenticate_odoo()
+        if uid:
             break
+        retry_count += 1
+        if retry_count < max_auth_retries:
+            logger.warning(f"Authentication failed, retrying in 10s ({retry_count}/{max_auth_retries})")
+            time.sleep(10)
         else:
-            retry_count += 1
-            if retry_count < max_retries:
-                logger.warning(f"Initial sync failed, retrying in 10s ({retry_count}/{max_retries})")
-                time.sleep(10)
-            else:
-                logger.error("Initial sync failed after max retries, continuing with polling...")
+            logger.error("Could not authenticate with Odoo after max retries")
+            return
+
+    # Initial sync
+    logger.info("Performing initial sync...")
+    sync_once(uid)
 
     # Main polling loop
     logger.info(f"Starting polling loop (interval: {POLL_INTERVAL}s)")
@@ -312,14 +305,16 @@ def main():
         try:
             time.sleep(POLL_INTERVAL)
             if running:  # Check again in case we were interrupted during sleep
-                sync_once()
+                sync_once(uid)
 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received")
             break
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
-            time.sleep(5)  # Brief pause before retrying
+            # Try to re-authenticate if needed
+            uid = authenticate_odoo()
+            time.sleep(5)
 
     logger.info("Sync service stopped")
 
